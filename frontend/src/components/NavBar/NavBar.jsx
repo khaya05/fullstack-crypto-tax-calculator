@@ -1,4 +1,4 @@
-import Logo from '../Logo/Logo';
+import Logo from '../Logo/Logo.jsx';
 import styled from 'styled-components';
 
 const NavBar = () => {

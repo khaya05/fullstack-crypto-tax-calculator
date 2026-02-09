@@ -1,18 +1,17 @@
 import { useEffect, useState } from "react";
-import styled, { keyframes } from "styled-components";
-import {
-  FaPaste,
-  FaFile,
-  FaLink,
-  FaUpload,
-  FaBitcoin,
-  FaEthereum,
-  FaCalculator,
-  FaFileCsv,
-  FaFileExcel,
-  FaFileAlt,
-} from "react-icons/fa";
-import { SiPolygon, SiSolana } from "react-icons/si";
+import { FaCalculator, FaEye, FaUpload, FaPaste, FaLink, FaTimes } from "react-icons/fa";
+import { 
+  Modal, Backdrop, Content, Header, Close, Body, Footer, 
+  Secondary, Primary, Tabs, Tab 
+} from "../ImportModal.styles";
+import { InfoBox, ErrorBox } from "../MessageBoxes/MessageBoxes";
+import FileUploadTab from "../FileUploadTab/FileUploadTab";
+import PasteDataTab from "../PasteDataTab/PasteDataTab";
+import WalletConnectTab from "../WalletConnectTab/WalletConnectTab";
+import DataPreview from "../DataPreview/DataPreview";
+import { parseCSVData, validateTransactionData } from "../../utils/dataProcessing.js";
+import { getUniqueTaxYears } from "../../utils/taxCalculations.js";
+import { calculateFIFO } from "../../utils/fifoCalculations.js";
 
 const TABS = {
   FILE: "file",
@@ -20,26 +19,20 @@ const TABS = {
   WALLET: "wallet",
 };
 
-const blockchainIcons = {
-  Bitcoin: <FaBitcoin />,
-  Ethereum: <FaEthereum />,
-  Polygon: <SiPolygon />,
-  Solana: <SiSolana />,
-};
-
-const fileFormats = [
-  { name: "CSV", icon: <FaFileCsv /> },
-  { name: "Excel", icon: <FaFileExcel /> },
-  { name: "Text", icon: <FaFileAlt /> },
-];
-
-export default function ImportModal({ isOpen, onClose }) {
+export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
   const [activeTab, setActiveTab] = useState(TABS.FILE);
   const [files, setFiles] = useState([]);
   const [pastedData, setPastedData] = useState("");
   const [walletAddresses, setWalletAddresses] = useState([]);
   const [selectedBlockchain, setSelectedBlockchain] = useState(null);
   const [walletInput, setWalletInput] = useState("");
+  const [walletName, setWalletName] = useState("Main");
+  
+  // Validation and processing states
+  const [previewData, setPreviewData] = useState([]);
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -55,41 +48,209 @@ export default function ImportModal({ isOpen, onClose }) {
     } else {
       document.body.style.overflow = "auto";
     }
-
     return () => {
       document.body.style.overflow = "auto";
     };
   }, [isOpen]);
 
+  // Process file data
+  const processFileData = async (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = parseCSVData(e.target.result);
+          resolve(data);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsText(file);
+    });
+  };
+
+  // Handle preview generation
+  const generatePreview = async () => {
+    let data = [];
+    setValidationErrors([]);
+    
+    if (activeTab === TABS.FILE && files.length > 0) {
+      try {
+        data = await processFileData(files[0]);
+      } catch (error) {
+        setValidationErrors(['Failed to process file: ' + error.message]);
+        return;
+      }
+    } else if (activeTab === TABS.PASTE && pastedData.trim()) {
+      data = parseCSVData(pastedData);
+    } else if (activeTab === TABS.WALLET && walletAddresses.length > 0) {
+      data = await fetchBlockchainData();
+    }
+    
+    if (data.length > 0) {
+      const errors = validateTransactionData(data);
+      setValidationErrors(errors);
+      setPreviewData(data.slice(0, 10));
+      setShowPreview(true);
+    }
+  };
+
+  // Simulate blockchain data fetching
+  const fetchBlockchainData = async () => {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    return walletAddresses.map((wallet, index) => ({
+      Date: new Date(Date.now() - (index * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
+      TransactionType: 'Buy',
+      Asset: wallet.blockchain === 'Bitcoin' ? 'BTC' : wallet.blockchain === 'Ethereum' ? 'ETH' : 'SOL',
+      Quantity: '0.1',
+      PricePerUnit: '500000',
+      TotalValue: '50000',
+      Fees: '250',
+      ExchangeWallet: wallet.name,
+      TransactionID: `AUTO-${Date.now()}-${index}`,
+      Notes: `Auto-imported from ${wallet.blockchain} blockchain`,
+      Address: wallet.address
+    }));
+  };
+
+  // Process and calculate
+  const handleProcessAndCalculate = async () => {
+    setIsProcessing(true);
+    
+    try {
+      let allData = [];
+      
+      if (activeTab === TABS.FILE) {
+        for (const file of files) {
+          const fileData = await processFileData(file);
+          allData = [...allData, ...fileData];
+        }
+      } else if (activeTab === TABS.PASTE) {
+        allData = parseCSVData(pastedData);
+      } else if (activeTab === TABS.WALLET) {
+        allData = await fetchBlockchainData();
+      }
+      
+      const errors = validateTransactionData(allData);
+      if (errors.length > 0) {
+        setValidationErrors(errors);
+        setIsProcessing(false);
+        return;
+      }
+      
+      allData.sort((a, b) => new Date(a.Date) - new Date(b.Date));
+      
+      // Perform FIFO calculations client-side
+      console.log('Starting FIFO calculation with', allData.length, 'transactions');
+      let fifoResults;
+      try {
+        fifoResults = calculateFIFO(allData);
+        console.log('FIFO calculation completed:', fifoResults);
+      } catch (calcError) {
+        console.error('FIFO calculation error:', calcError);
+        throw new Error('FIFO calculation failed: ' + calcError.message);
+      }
+      
+      // Format base costs for display (group by tax year's March 1st)
+      const baseCostsByTaxYear = {};
+      Object.keys(fifoResults.baseCostsByDate).forEach(dateKey => {
+        const date = new Date(dateKey);
+        const taxYear = date.getMonth() === 2 ? date.getFullYear() : date.getFullYear() - 1;
+        if (!baseCostsByTaxYear[taxYear]) {
+          baseCostsByTaxYear[taxYear] = {};
+        }
+        Object.assign(baseCostsByTaxYear[taxYear], fifoResults.baseCostsByDate[dateKey]);
+      });
+      
+      // Format capital gains for display
+      const capitalGainsFormatted = {};
+      fifoResults.taxYears.forEach(year => {
+        const yearData = fifoResults.capitalGainsByYear[year] || { total: 0 };
+        capitalGainsFormatted[year] = {
+          total: yearData.total,
+          byCoin: {}
+        };
+        
+        Object.keys(fifoResults.capitalGainsByCoin).forEach(coin => {
+          if (fifoResults.capitalGainsByCoin[coin][year]) {
+            capitalGainsFormatted[year].byCoin[coin] = fifoResults.capitalGainsByCoin[coin][year];
+          }
+        });
+      });
+      
+      // Ensure calculations array matches originalTransactions array
+      // Create a map by transaction index for quick lookup
+      const calculationsMap = {};
+      fifoResults.transactionCalculations.forEach(calc => {
+        calculationsMap[calc.transactionIndex] = {
+          capitalGain: calc.capitalGain || 0,
+          proceeds: calc.proceeds || 0,
+          baseCost: calc.baseCost || 0,
+          fifoDetails: calc.fifoDetails || [],
+          balancesAfter: calc.balancesAfter || {}
+        };
+      });
+      
+      // Create calculations array in the same order as originalTransactions
+      const calculationsArray = allData.map((_, index) => calculationsMap[index] || {
+        capitalGain: 0,
+        proceeds: 0,
+        baseCost: 0,
+        fifoDetails: [],
+        balancesAfter: {}
+      });
+      
+      const processedData = {
+        originalTransactions: allData,
+        calculations: {
+          transactions: calculationsArray
+        },
+        taxYears: fifoResults.taxYears || [],
+        baseCosts: baseCostsByTaxYear,
+        baseCostsByDate: fifoResults.baseCostsByDate || {},
+        capitalGains: capitalGainsFormatted,
+        capitalGainsByCoin: fifoResults.capitalGainsByCoin || {},
+        capitalGainsByYear: fifoResults.capitalGainsByYear || {},
+        summary: {
+          totalTransactions: allData.length,
+          totalAssets: [...new Set(allData.map(t => t.Asset))].length,
+          totalFees: allData.reduce((sum, t) => sum + parseFloat(t.Fees || 0), 0),
+          dateRange: {
+            from: allData[0]?.Date,
+            to: allData[allData.length - 1]?.Date
+          }
+        }
+      };
+      
+      console.log('Calling onDataProcessed with:', {
+        transactionCount: processedData.originalTransactions.length,
+        calculationCount: processedData.calculations.transactions.length,
+        taxYears: processedData.taxYears,
+        hasBaseCosts: !!processedData.baseCostsByDate
+      });
+      
+      if (onDataProcessed) {
+        onDataProcessed(processedData);
+      } else {
+        console.error('onDataProcessed callback is not defined!');
+      }
+      
+      onClose();
+      
+    } catch (error) {
+      console.error('Processing error:', error);
+      setValidationErrors(['Processing failed: ' + error.message]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   if (!isOpen) return null;
 
-  const canProcess = files.length > 0 || pastedData.trim().length > 0 || walletAddresses.length > 0;
-
-  const addWalletAddress = () => {
-    if (!walletInput) return;
-    setWalletAddresses((prev) => [...prev, { blockchain: selectedBlockchain, address: walletInput.trim() }]);
-    setWalletInput("");
-  };
-
-  const handleRemoveFile = (index) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleFileChange = (e) => {
-    const newFiles = Array.from(e.target.files);
-    setFiles((prev) => [...prev, ...newFiles]);
-  };
-
-  const handleRemoveWallet = (index) => {
-    setWalletAddresses((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  // Optionally define a placeholder selectBlockchain function if needed.
-  const selectBlockchain = (chainKey, chainName) => {
-    // Placeholder function: you can add logic to handle blockchain selection,
-    // such as fetching data or initializing something.
-    console.log(`Blockchain selected: ${chainName} (${chainKey})`);
-  };
+  const canProcess = (files.length > 0 || pastedData.trim().length > 0 || walletAddresses.length > 0) 
+                    && validationErrors.length === 0;
 
   return (
     <Modal>
@@ -97,36 +258,41 @@ export default function ImportModal({ isOpen, onClose }) {
       <Content onClick={(e) => e.stopPropagation()}>
         <Header>
           <div>
-            <h2>Import Your Transaction Data</h2>
+            <h2>Import Your Crypto Transaction Data</h2>
+            <p>SARS-compliant FIFO calculation for South African tax returns</p>
           </div>
-          <Close onClick={onClose}>✕</Close>
+          <Close onClick={onClose}>
+            <FaTimes />
+          </Close>
         </Header>
 
         <Body>
           <Tabs>
             {Object.values(TABS).map((tab) => (
-              <Tab key={tab} active={activeTab === tab} onClick={() => setActiveTab(tab)}>
+              <Tab
+                key={tab}
+                active={activeTab === tab}
+                onClick={() => {
+                  setActiveTab(tab);
+                  setShowPreview(false);
+                  setValidationErrors([]);
+                }}
+              >
                 {tab === "file" && (
                   <>
-                    <div style={{ fontSize: "1.2rem", paddingRight: "0.5rem" }}>
-                      <FaFile />
-                    </div>
+                    <FaUpload style={{ marginRight: "0.5rem" }} />
                     Upload File
                   </>
                 )}
                 {tab === "paste" && (
                   <>
-                    <div style={{ fontSize: "1.2rem", paddingRight: "0.5rem" }}>
-                      <FaPaste />
-                    </div>
+                    <FaPaste style={{ marginRight: "0.5rem" }} />
                     Paste Data
                   </>
                 )}
                 {tab === "wallet" && (
                   <>
-                    <div style={{ fontSize: "1.2rem", paddingRight: "0.5rem" }}>
-                      <FaLink />
-                    </div>
+                    <FaLink style={{ marginRight: "0.5rem" }} />
                     Connect Wallet
                   </>
                 )}
@@ -135,521 +301,67 @@ export default function ImportModal({ isOpen, onClose }) {
           </Tabs>
 
           {activeTab === TABS.FILE && (
-            <>
-              <label>Supported Formats:</label>
-              <FileFormats>
-                {fileFormats.map((format) => (
-                  <FileFormat key={format.name}>
-                    {format.icon}
-                    {format.name}
-                  </FileFormat>
-                ))}
-              </FileFormats>
-
-              <input
-                type="file"
-                hidden
-                multiple
-                accept=".csv,.xlsx,.xls,.txt"
-                id="file-input"
-                onChange={handleFileChange}
-              />
-              <UploadZone onClick={() => document.getElementById("file-input").click()}>
-                <UploadIcon>
-                  <FaUpload />
-                </UploadIcon>
-                <strong>Drag & drop files</strong>
-                <span>or click to browse</span>
-              </UploadZone>
-
-              {files.length > 0 && (
-                <FileList>
-                  {files.map((f, i) => (
-                    <FileItem key={i}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        <FaFile />
-                        <div>
-                          <p style={{ margin: 0, fontWeight: 600 }}>{f.name}</p>
-                          <small style={{ fontSize: "0.75rem", color: "var(--gray-500)" }}>
-                            {(f.size / 1024).toFixed(2)} KB
-                          </small>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <FileStatus ready>{`✓ Ready to process`}</FileStatus>
-                        <RemoveButton onClick={() => handleRemoveFile(i)}>✕</RemoveButton>
-                      </div>
-                    </FileItem>
-                  ))}
-                </FileList>
-              )}
-            </>
+            <FileUploadTab 
+              files={files}
+              setFiles={setFiles}
+              setShowPreview={setShowPreview}
+            />
           )}
 
           {activeTab === TABS.PASTE && (
-            <>
-              <label>Paste Your Transaction Data</label>
-              <Textarea
-                value={pastedData}
-                onChange={(e) => setPastedData(e.target.value)}
-                placeholder="Date | Type | Coin | Quantity | Price | Fee"
-              />
-            </>
+            <PasteDataTab 
+              pastedData={pastedData}
+              setPastedData={setPastedData}
+            />
           )}
 
           {activeTab === TABS.WALLET && (
-            <>
-              <div
-                style={{
-                  background: "var(--gray-50)",
-                  borderLeft: "4px solid var(--primary-teal)",
-                  padding: "1rem 1.5rem",
-                  borderRadius: "var(--radius-md)",
-                  color: "var(--gray-600)",
-                  marginBottom: "1.5rem",
-                }}
-              >
-                Connect Your Wallet Addresses. Add one or multiple wallet addresses to automatically fetch your
-                transaction history from the blockchain.
-              </div>
-              <BlockchainTiles>
-                {["Bitcoin", "Ethereum", "Polygon", "Solana"].map((chain) => (
-                  <BlockchainTile
-                    key={chain}
-                    selected={selectedBlockchain === chain}
-                    onClick={() => {
-                      setSelectedBlockchain(chain);
-                      selectBlockchain(chain.toLowerCase(), chain);
-                    }}
-                  >
-                    <BlockchainLogo>{blockchainIcons[chain]}</BlockchainLogo>
-                    <BlockchainName>{chain}</BlockchainName>
-                    <BlockchainSymbol>
-                      {chain === "Bitcoin"
-                        ? "BTC"
-                        : chain === "Ethereum"
-                          ? "ETH"
-                          : chain === "Polygon"
-                            ? "MATIC"
-                            : "SOL"}
-                    </BlockchainSymbol>
-                  </BlockchainTile>
-                ))}
-              </BlockchainTiles>
+            <WalletConnectTab
+              walletName={walletName}
+              setWalletName={setWalletName}
+              selectedBlockchain={selectedBlockchain}
+              setSelectedBlockchain={setSelectedBlockchain}
+              walletInput={walletInput}
+              setWalletInput={setWalletInput}
+              walletAddresses={walletAddresses}
+              setWalletAddresses={setWalletAddresses}
+            />
+          )}
 
-              <AddressRow>
-                <input
-                  disabled={!selectedBlockchain}
-                  value={walletInput}
-                  onChange={(e) => setWalletInput(e.target.value)}
-                  placeholder="Enter wallet address"
-                />
-                <button disabled={!walletInput.trim() || !selectedBlockchain} onClick={addWalletAddress}>
-                  + Add Address
-                </button>
-              </AddressRow>
+          {validationErrors.length > 0 && (
+            <ErrorBox errors={validationErrors} />
+          )}
 
-              {walletAddresses.length > 0 && (
-                <FileList as="ul">
-                  {walletAddresses.map((w, i) => (
-                    <WalletItem key={i}>
-                      <div>
-                        <strong>{w.blockchain}:</strong> {w.address}
-                      </div>
-                      <RemoveButton onClick={() => handleRemoveWallet(i)}>✕</RemoveButton>
-                    </WalletItem>
-                  ))}
-                </FileList>
-              )}
-            </>
+          {showPreview && previewData.length > 0 && (
+            <DataPreview data={previewData} />
           )}
         </Body>
 
         <Footer>
-          <Secondary onClick={onClose}>Cancel</Secondary>
-          <Primary disabled={!canProcess}>
-            <FaCalculator /> Process & Calculate
-          </Primary>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {(files.length > 0 || pastedData.trim().length > 0 || walletAddresses.length > 0) && (
+              <button onClick={generatePreview}>
+                <FaEye /> Preview Data
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <Secondary onClick={onClose}>Cancel</Secondary>
+            <Primary 
+              disabled={!canProcess || isProcessing} 
+              onClick={handleProcessAndCalculate}
+            >
+              {isProcessing ? (
+                <>Processing FIFO...</>
+              ) : (
+                <>
+                  <FaCalculator /> Calculate Capital Gains
+                </>
+              )}
+            </Primary>
+          </div>
         </Footer>
       </Content>
     </Modal>
   );
 }
-
-const slideIn = keyframes`
-  from { opacity: 0; transform: translateY(10px) scale(.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-`;
-
-const Modal = styled.div`
-  display: flex;
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  max-height: 90vh;
-  z-index: 1000;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  overflow-y: auto;
-`;
-
-const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  height: 100vh;
-`;
-
-const Content = styled.div`
-  background: #fff;
-  max-width: 900px;
-  width: 100%;
-  border-radius: 1rem;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  animation: ${slideIn} 0.25s ease-out;
-  z-index: 2;
-`;
-
-const Header = styled.div`
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: space-between;
-`;
-
-const Close = styled.button`
-  background: none;
-  border: none;
-  font-size: 1.25rem;
-  cursor: pointer;
-`;
-
-const Body = styled.div`
-  padding: 1.5rem 2rem;
-  overflow-y: auto;
-  flex: 1;
-`;
-
-const Tabs = styled.div`
-  display: flex;
-  margin-bottom: 1.5rem;
-  border-bottom: 2px solid #e5e7eb;
-`;
-
-const Tab = styled.button`
-  flex: 1;
-  border: none;
-  background: none;
-  padding: 1rem;
-  margin: 0rem;
-  border-bottom: ${({ active }) => (active ? "var(--primary-teal)" : "#ff262600")} 3px solid;
-  color: ${({ active }) => (active ? "var(--primary-teal)" : "var(--gray-600)")};
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  &:hover {
-    color: var(--primary-teal);
-    background: var(--gray-50);
-  }
-`;
-
-const UploadZone = styled.div`
-  border: 3px dashed var(--gray-300);
-  border-radius: 0.75rem;
-  padding: 2rem;
-  text-align: center;
-  cursor: pointer;
-  background: var(--gray-50);
-  transition: all 0.2s ease;
-
-  &:hover,
-  .drag-over {
-    border-color: var(--primary-teal);
-    background: var(--primary-teal-light);
-    transform: scale(1.01);
-  }
-`;
-
-const UploadIcon = styled.div`
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-`;
-
-const FileList = styled.ul`
-  margin-top: 1rem;
-  list-style-type: none;
-  padding: 0;
-  font-size: 0.875rem;
-`;
-
-const FileItem = styled.li`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-md);
-  margin-bottom: 0.5rem;
-  background: var(--gray-50);
-`;
-
-const WalletItem = styled.li`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-md);
-  margin-bottom: 0.5rem;
-  background: var(--gray-50);
-`;
-
-const FileStatus = styled.div`
-  font-weight: 600;
-  color: var(--success);
-  font-size: 0.875rem;
-  white-space: nowrap;
-`;
-
-const RemoveButton = styled.button`
-  background: transparent;
-  border: none;
-  color: var(--gray-400);
-  font-size: 1.25rem;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--radius-sm);
-  transition: all 0.2s;
-
-  &:hover {
-    color: var(--error);
-    background: var(--gray-100);
-  }
-`;
-
-const Textarea = styled.textarea`
-  width: 100%;
-  min-height: 180px;
-  margin-top: 0.5rem;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid #d1d5db;
-  font-family: monospace;
-`;
-
-const BlockchainTiles = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-`;
-
-const BlockchainTile = styled.div`
-  background: var(--white);
-  border: 3px solid var(--gray-200);
-  border-radius: var(--radius-lg);
-  padding: 1.5rem 1rem;
-  text-align: center;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.2s ease;
-
-  &:hover {
-    border-color: var(--primary-teal);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-  }
-
-  ${({ selected }) =>
-    selected &&
-    `
-    border-color: var(--primary-teal);
-    background: var(--primary-teal-light);
-    box-shadow: var(--shadow-md);
-
-    &::after {
-      content: "✓";
-      position: absolute;
-      top: 0.5rem;
-      right: 0.5rem;
-      background: var(--primary-teal);
-      color: var(--white);
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.875rem;
-      font-weight: 700;
-    }
-  `}
-`;
-
-const BlockchainLogo = styled.div`
-  font-size: 2.5rem;
-  margin-bottom: 0.5rem;
-`;
-
-const BlockchainName = styled.div`
-  font-weight: 600;
-  color: var(--gray-900);
-  font-size: 0.9375rem;
-  margin-bottom: 0.25rem;
-`;
-
-const BlockchainSymbol = styled.div`
-  font-size: 0.75rem;
-  color: var(--gray-500);
-  font-weight: 600;
-`;
-
-const AddressRow = styled.div`
-  display: flex;
-  gap: 0.5rem;
-
-  input {
-    flex: 1;
-    padding: 0.875rem 1rem;
-    border: 2px solid var(--gray-200);
-    border-radius: var(--radius-lg);
-    font-size: 0.875rem;
-    font-family: "Monaco", "Courier New", monospace;
-    transition: all 0.2s;
-    background: var(--gray-50);
-
-    &:focus {
-      outline: none;
-      border-color: var(--primary-teal);
-      background: var(--white);
-      box-shadow: 0 0 0 3px var(--primary-teal-light);
-    }
-
-    &:disabled {
-      background: var(--gray-100);
-      cursor: not-allowed;
-    }
-  }
-
-  button {
-    background: var(--primary-teal);
-    color: var(--white);
-    border: none;
-    padding: 0.875rem 1.5rem;
-    border-radius: var(--radius-lg);
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-
-    &:hover {
-      background: var(--primary-teal-dark);
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-md);
-    }
-
-    &:disabled {
-      background: var(--gray-300);
-      color: var(--gray-500);
-      cursor: not-allowed;
-      box-shadow: none;
-      transform: none;
-    }
-  }
-`;
-
-const FileFormats = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  margin-bottom: 0.5rem;
-  gap: 0.5rem;
-`;
-
-const FileFormat = styled.div`
-  background: var(--white);
-  border: 2px solid var(--gray-200);
-  border-radius: 20px;
-  padding: 0.5rem 1rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--gray-700);
-  transition: all 0.2s;
-
-  &:hover {
-    border-color: var(--primary-teal);
-    background: var(--primary-teal-light);
-    color: var(--primary-teal-dark);
-  }
-`;
-
-const Footer = styled.div`
-  padding: 1rem 2rem;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-`;
-
-const Secondary = styled.button`
-  background: var(--white);
-  color: var(--primary-teal);
-  border: 2px solid var(--primary-teal);
-  padding: 0.5rem 1.25rem;
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    background: var(--primary-teal);
-    color: var(--white);
-  }
-`;
-
-const Primary = styled.button`
-  background: linear-gradient(135deg, var(--accent-coral) 0%, #ff5252 100%);
-  color: white;
-  border: none;
-  padding: 1rem 2.5rem;
-  border-radius: var(--radius-lg);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: var(--shadow-md);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
-  }
-
-  &:active {
-    transform: translateY(0);
-  }
-
-  &:disabled {
-    background: var(--gray-300);
-    color: var(--gray-500);
-    cursor: not-allowed;
-    box-shadow: none;
-    transform: none;
-  }
-`;

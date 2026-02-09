@@ -1,8 +1,8 @@
 import React from 'react';
 import styled from 'styled-components';
-import ImportButton from '../ImportButton/ImportButton';
+import ImportButton from '../ImportButton/ImportButton.jsx';
 
-const Hero = () => {
+const Hero = ({ onDataProcessed }) => {
   return (
     <Container>
       <div className='wrapper'>
@@ -13,7 +13,7 @@ const Hero = () => {
           African Revenue Service approved First-In-First-Out method
         </p>
       </div>
-      <ImportButton />
+      <ImportButton onDataProcessed={onDataProcessed} />
     </Container>
   );
 };
