@@ -3,7 +3,8 @@ import {
   FaChartLine, FaCoins, FaCalculator, FaDownload, 
   FaExpand, FaCompress, FaFilter, FaCog,
   FaArrowUp, FaArrowDown, FaMinus, FaHome,
-  FaChevronDown, FaChevronUp
+  FaChevronDown, FaChevronUp, FaFileDownload,
+  FaExclamationCircle
 } from "react-icons/fa";
 import styled from "styled-components";
 import { getTaxYear } from "../utils/taxCalculations.js";
@@ -49,6 +50,29 @@ export default function DataVisualization({ data, onBack }) {
     return <FaMinus style={{ color: '#6b7280' }} />;
   };
 
+  // Calculate total tax owing across all years
+  const totalCapitalGains = Object.values(data?.capitalGains || {}).reduce((sum, year) => sum + (year?.total || 0), 0);
+  const annualExclusion = 40000;
+  const inclusionRate = 0.40;
+  
+  // Calculate tax owing per year
+  const taxOwingByYear = {};
+  const taxYears = data?.taxYears || [];
+  taxYears.forEach(year => {
+    const yearGain = data?.capitalGains?.[year]?.total || 0;
+    const netGain = Math.max(0, yearGain - annualExclusion);
+    const taxableGain = netGain * inclusionRate;
+    taxOwingByYear[year] = {
+      capitalGain: yearGain,
+      exclusion: Math.min(yearGain, annualExclusion),
+      netGain,
+      taxableGain
+    };
+  });
+
+  const totalTaxOwing = Object.values(taxOwingByYear).reduce((sum, year) => sum + year.taxableGain, 0);
+  const totalExclusionUsed = Object.values(taxOwingByYear).reduce((sum, year) => sum + year.exclusion, 0);
+
   // Get all March 1st dates from baseCostsByDate
   const marchDates = Object.keys(data?.baseCostsByDate || {})
     .filter(date => {
@@ -61,7 +85,6 @@ export default function DataVisualization({ data, onBack }) {
     })
     .sort();
   
-  const taxYears = data?.taxYears || [];
   const originalTransactions = data?.originalTransactions || [];
   const summary = data?.summary || { totalTransactions: 0, totalAssets: 0, totalFees: 0 };
   const capitalGains = data?.capitalGains || {};
@@ -77,66 +100,136 @@ export default function DataVisualization({ data, onBack }) {
           </Title>
           <Subtitle>SARS FIFO Calculation Report</Subtitle>
         </HeaderContent>
-        <Actions>
+        <HeaderActions>
           {onBack && (
-            <ActionButton onClick={onBack}>
+            <SecondaryButton onClick={onBack}>
               <FaHome />
               Back to Home
-            </ActionButton>
+            </SecondaryButton>
           )}
-          <ActionButton onClick={toggleAllCalculations}>
-            {showAllCalculations ? <FaCompress /> : <FaExpand />}
-            {showAllCalculations ? 'Collapse All' : 'Expand All'}
-          </ActionButton>
-          <ActionButton primary>
-            <FaDownload />
+          <PrimaryButton>
+            <FaFileDownload />
             Export Report
-          </ActionButton>
-        </Actions>
+          </PrimaryButton>
+        </HeaderActions>
       </Header>
 
-      {/* Summary Cards */}
-      <SummaryGrid>
-        <SummaryCard>
-          <CardIcon style={{ color: '#3b82f6' }}>
-            <FaCoins />
-          </CardIcon>
-          <CardContent>
-            <CardValue>{summary.totalTransactions}</CardValue>
-            <CardLabel>Total Transactions</CardLabel>
-          </CardContent>
-        </SummaryCard>
+      {/* Tax Owing Highlight */}
+      <TaxOwingSection>
+        <TaxOwingCard>
+          <TaxOwingHeader>
+            <TaxOwingIcon>
+              <FaCalculator />
+            </TaxOwingIcon>
+            <div>
+              <TaxOwingLabel>Total Taxable Capital Gain</TaxOwingLabel>
+              <TaxOwingSubtitle>Add this amount to your taxable income on SARS return</TaxOwingSubtitle>
+            </div>
+          </TaxOwingHeader>
+          <TaxOwingAmount>R{totalTaxOwing.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TaxOwingAmount>
+          <TaxOwingBreakdown>
+            <BreakdownItem>
+              <BreakdownLabel>Total Capital Gains</BreakdownLabel>
+              <BreakdownValue positive={totalCapitalGains >= 0}>
+                R{totalCapitalGains.toLocaleString()}
+              </BreakdownValue>
+            </BreakdownItem>
+            <BreakdownItem>
+              <BreakdownLabel>Annual Exclusions Used</BreakdownLabel>
+              <BreakdownValue>-R{totalExclusionUsed.toLocaleString()}</BreakdownValue>
+            </BreakdownItem>
+            <BreakdownItem>
+              <BreakdownLabel>Inclusion Rate (40%)</BreakdownLabel>
+              <BreakdownValue>×0.40</BreakdownValue>
+            </BreakdownItem>
+          </TaxOwingBreakdown>
+          <TaxOwingNote>
+            <FaExclamationCircle />
+            SARS will calculate your final tax based on your total income and tax bracket
+          </TaxOwingNote>
+        </TaxOwingCard>
 
-        <SummaryCard>
-          <CardIcon style={{ color: '#10b981' }}>
-            <FaCoins />
-          </CardIcon>
-          <CardContent>
-            <CardValue>{summary.totalAssets}</CardValue>
-            <CardLabel>Unique Assets</CardLabel>
-          </CardContent>
-        </SummaryCard>
+        {/* Summary Cards */}
+        <SummaryGrid>
+          <SummaryCard>
+            <CardIcon style={{ color: '#3b82f6' }}>
+              <FaCoins />
+            </CardIcon>
+            <CardContent>
+              <CardValue>{summary.totalTransactions}</CardValue>
+              <CardLabel>Transactions</CardLabel>
+            </CardContent>
+          </SummaryCard>
 
-        <SummaryCard>
-          <CardIcon style={{ color: '#f59e0b' }}>
-            <FaCalculator />
-          </CardIcon>
-          <CardContent>
-            <CardValue>R{summary.totalFees.toLocaleString()}</CardValue>
-            <CardLabel>Total Fees Paid</CardLabel>
-          </CardContent>
-        </SummaryCard>
+          <SummaryCard>
+            <CardIcon style={{ color: '#10b981' }}>
+              <FaCoins />
+            </CardIcon>
+            <CardContent>
+              <CardValue>{summary.totalAssets}</CardValue>
+              <CardLabel>Unique Assets</CardLabel>
+            </CardContent>
+          </SummaryCard>
 
-        <SummaryCard>
-          <CardIcon style={{ color: '#8b5cf6' }}>
-            <FaChartLine />
-          </CardIcon>
-          <CardContent>
-            <CardValue>R{(Object.values(capitalGains).reduce((sum, year) => sum + (year?.total || 0), 0)).toLocaleString()}</CardValue>
-            <CardLabel>Total Capital Gains</CardLabel>
-          </CardContent>
-        </SummaryCard>
-      </SummaryGrid>
+          <SummaryCard>
+            <CardIcon style={{ color: '#f59e0b' }}>
+              <FaCalculator />
+            </CardIcon>
+            <CardContent>
+              <CardValue>R{summary.totalFees.toLocaleString()}</CardValue>
+              <CardLabel>Total Fees</CardLabel>
+            </CardContent>
+          </SummaryCard>
+
+          <SummaryCard>
+            <CardIcon style={{ color: '#8b5cf6' }}>
+              <FaChartLine />
+            </CardIcon>
+            <CardContent>
+              <CardValue>{taxYears.length}</CardValue>
+              <CardLabel>Tax Years</CardLabel>
+            </CardContent>
+          </SummaryCard>
+        </SummaryGrid>
+      </TaxOwingSection>
+
+      {/* Tax Year Breakdown */}
+      <Section>
+        <SectionTitle>Tax Breakdown by Year</SectionTitle>
+        <TaxYearGrid>
+          {taxYears.map(year => {
+            const yearTax = taxOwingByYear[year];
+            return (
+              <TaxYearCard key={year}>
+                <TaxYearHeader>
+                  <TaxYearName>Tax Year {year}</TaxYearName>
+                  <TaxYearPeriod>Mar {year-1} - Feb {year}</TaxYearPeriod>
+                </TaxYearHeader>
+                <TaxYearStats>
+                  <TaxYearStat>
+                    <StatLabel>Capital Gain</StatLabel>
+                    <StatValue positive={yearTax.capitalGain >= 0}>
+                      R{yearTax.capitalGain.toLocaleString()}
+                    </StatValue>
+                  </TaxYearStat>
+                  <TaxYearStat>
+                    <StatLabel>Exclusion</StatLabel>
+                    <StatValue>-R{yearTax.exclusion.toLocaleString()}</StatValue>
+                  </TaxYearStat>
+                  <TaxYearStat>
+                    <StatLabel>Net Gain</StatLabel>
+                    <StatValue>R{yearTax.netGain.toLocaleString()}</StatValue>
+                  </TaxYearStat>
+                  <TaxYearStat highlight>
+                    <StatLabel>Taxable (40%)</StatLabel>
+                    <StatValue highlight>R{yearTax.taxableGain.toLocaleString()}</StatValue>
+                  </TaxYearStat>
+                </TaxYearStats>
+              </TaxYearCard>
+            );
+          })}
+        </TaxYearGrid>
+      </Section>
 
       {/* Base Costs for every 1 March */}
       <Section>
@@ -176,6 +269,10 @@ export default function DataVisualization({ data, onBack }) {
         <SectionHeader>
           <SectionTitle>Transaction History with FIFO Calculations</SectionTitle>
           <FilterControls>
+            <FilterButton onClick={toggleAllCalculations}>
+              {showAllCalculations ? <FaCompress /> : <FaExpand />}
+              {showAllCalculations ? 'Collapse All' : 'Expand All'}
+            </FilterButton>
             <FilterButton>
               <FaFilter />
               Filter
@@ -298,44 +395,6 @@ export default function DataVisualization({ data, onBack }) {
         </TransactionsList>
       </Section>
 
-      {/* Capital Gains Summary by Tax Year */}
-      <Section>
-        <SectionTitle>Capital Gains Summary by Tax Year</SectionTitle>
-        <CapitalGainsTable>
-          <table>
-            <thead>
-              <tr>
-                <th>Tax Year</th>
-                <th>Capital Gain/Loss (Total)</th>
-                <th>Tax Implications</th>
-              </tr>
-            </thead>
-            <tbody>
-              {taxYears.map(year => {
-                const total = capitalGains[year]?.total || 0;
-                return (
-                  <tr key={year}>
-                    <td>{year} (Mar {year-1} - Feb {year})</td>
-                    <td>
-                      <CapitalGainCell gain={total}>
-                        {getCapitalGainIcon(total)}
-                        R{Math.abs(total).toLocaleString()}
-                      </CapitalGainCell>
-                    </td>
-                    <td>
-                      {total > 0 ? 
-                        'Taxable gain' : 
-                        total < 0 ? 'Allowable loss' : 'No gain/loss'
-                      }
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </CapitalGainsTable>
-      </Section>
-
       {/* Capital Gains by Coin */}
       <Section>
         <SectionTitle>Capital Gains per Coin by Tax Year</SectionTitle>
@@ -386,7 +445,7 @@ export default function DataVisualization({ data, onBack }) {
   );
 }
 
-// Styled components for DataVisualization
+// Styled components
 const Container = styled.div`
   max-width: 1400px;
   margin: 0 auto;
@@ -403,7 +462,7 @@ const Header = styled.div`
   background: var(--white);
   padding: 2rem;
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
 `;
 
 const HeaderContent = styled.div``;
@@ -423,20 +482,19 @@ const Subtitle = styled.p`
   font-size: 1.125rem;
 `;
 
-const Actions = styled.div`
+const HeaderActions = styled.div`
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
 `;
 
-const ActionButton = styled.button`
-  background: ${props => props.primary ? 
-    'linear-gradient(135deg, var(--primary-teal) 0%, #059669 100%)' : 
-    'var(--white)'};
-  color: ${props => props.primary ? 'var(--white)' : 'var(--primary-teal)'};
-  border: 2px solid var(--primary-teal);
+const SecondaryButton = styled.button`
+  background: var(--white);
+  color: var(--gray-700);
+  border: 2px solid var(--gray-300);
   padding: 0.75rem 1.5rem;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   font-weight: 600;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
@@ -444,43 +502,162 @@ const ActionButton = styled.button`
   gap: 0.5rem;
 
   &:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-400);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+`;
+
+const PrimaryButton = styled.button`
+  background: linear-gradient(135deg, var(--primary-teal) 0%, #059669 100%);
+  color: var(--white);
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: var(--shadow-md);
+
+  &:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-lg);
-    ${props => !props.primary && 'background: var(--primary-teal); color: var(--white);'}
+  }
+`;
+
+const TaxOwingSection = styled.div`
+  margin-bottom: 3rem;
+`;
+
+const TaxOwingCard = styled.div`
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 3px solid #f59e0b;
+  border-radius: var(--radius-xl);
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 10px 15px -3px rgba(245, 158, 11, 0.2);
+`;
+
+const TaxOwingHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+`;
+
+const TaxOwingIcon = styled.div`
+  width: 64px;
+  height: 64px;
+  background: #f59e0b;
+  color: var(--white);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  box-shadow: var(--shadow-md);
+`;
+
+const TaxOwingLabel = styled.div`
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #92400e;
+`;
+
+const TaxOwingSubtitle = styled.div`
+  font-size: 0.875rem;
+  color: #b45309;
+  margin-top: 0.25rem;
+`;
+
+const TaxOwingAmount = styled.div`
+  font-size: 3.5rem;
+  font-weight: 800;
+  color: #92400e;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  line-height: 1;
+`;
+
+const TaxOwingBreakdown = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+`;
+
+const BreakdownItem = styled.div`
+  background: rgba(255, 255, 255, 0.8);
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  text-align: center;
+`;
+
+const BreakdownLabel = styled.div`
+  font-size: 0.875rem;
+  color: #78350f;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+`;
+
+const BreakdownValue = styled.div`
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: ${props => props.positive ? '#059669' : props.positive === false ? '#dc2626' : '#92400e'};
+`;
+
+const TaxOwingNote = styled.div`
+  background: rgba(255, 255, 255, 0.9);
+  padding: 1rem 1.5rem;
+  border-radius: var(--radius-md);
+  color: #78350f;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 2px solid #fbbf24;
+
+  svg {
+    color: #f59e0b;
+    font-size: 1.25rem;
   }
 `;
 
 const SummaryGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
 `;
 
 const SummaryCard = styled.div`
   background: var(--white);
-  padding: 2rem;
-  border-radius: var(--radius-xl);
+  padding: 1.5rem;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  box-shadow: var(--shadow-lg);
+  gap: 1rem;
+  box-shadow: var(--shadow-md);
   transition: all 0.2s;
 
   &:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
   }
 `;
 
 const CardIcon = styled.div`
-  font-size: 2.5rem;
+  font-size: 2rem;
 `;
 
 const CardContent = styled.div``;
 
 const CardValue = styled.div`
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 700;
   color: var(--gray-900);
   line-height: 1;
@@ -497,7 +674,7 @@ const Section = styled.div`
   border-radius: var(--radius-xl);
   padding: 2rem;
   margin-bottom: 2rem;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
 `;
 
 const SectionHeader = styled.div`
@@ -508,7 +685,7 @@ const SectionHeader = styled.div`
 `;
 
 const SectionTitle = styled.h2`
-  margin: 0;
+  margin: 0 0 1.5rem 0;
   color: var(--gray-900);
   font-size: 1.5rem;
 `;
@@ -525,6 +702,7 @@ const FilterButton = styled.button`
   padding: 0.5rem 1rem;
   border-radius: var(--radius-md);
   font-size: 0.875rem;
+  font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -533,7 +711,74 @@ const FilterButton = styled.button`
 
   &:hover {
     background: var(--gray-200);
+    transform: translateY(-1px);
   }
+`;
+
+const TaxYearGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+`;
+
+const TaxYearCard = styled.div`
+  background: var(--gray-50);
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: var(--primary-teal);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+`;
+
+const TaxYearHeader = styled.div`
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--gray-200);
+`;
+
+const TaxYearName = styled.div`
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gray-900);
+`;
+
+const TaxYearPeriod = styled.div`
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  margin-top: 0.25rem;
+`;
+
+const TaxYearStats = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+`;
+
+const TaxYearStat = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: ${props => props.highlight ? '1rem' : '0.5rem'};
+  background: ${props => props.highlight ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : 'transparent'};
+  border-radius: ${props => props.highlight ? 'var(--radius-md)' : '0'};
+  border: ${props => props.highlight ? '2px solid #f59e0b' : 'none'};
+`;
+
+const StatLabel = styled.div`
+  font-size: 0.875rem;
+  color: var(--gray-700);
+  font-weight: 600;
+`;
+
+const StatValue = styled.div`
+  font-size: ${props => props.highlight ? '1.5rem' : '1.125rem'};
+  font-weight: 700;
+  color: ${props => props.highlight ? '#92400e' : props.positive ? '#059669' : props.positive === false ? '#dc2626' : 'var(--gray-900)'};
 `;
 
 const BaseCostsSection = styled.div`
@@ -808,31 +1053,6 @@ const BalanceEntry = styled.div`
   font-size: 0.875rem;
   color: var(--gray-700);
   font-family: monospace;
-`;
-
-const CapitalGainsTable = styled.div`
-  overflow-x: auto;
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-
-    th, td {
-      padding: 1rem;
-      text-align: left;
-      border-bottom: 1px solid var(--gray-200);
-    }
-
-    th {
-      background: var(--gray-100);
-      font-weight: 600;
-      color: var(--gray-700);
-    }
-
-    tbody tr:hover {
-      background: var(--gray-50);
-    }
-  }
 `;
 
 const CapitalGainCell = styled.div`

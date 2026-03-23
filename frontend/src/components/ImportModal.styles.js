@@ -211,8 +211,8 @@ export const Primary = styled.button`
 
 export const Secondary = styled.button`
   background: var(--white);
-  color: var(--primary-teal);
-  border: 2px solid var(--primary-teal);
+  color: var(--gray-700);
+  border: 2px solid var(--gray-300);
   padding: 0.75rem 1.5rem;
   border-radius: var(--radius-lg);
   font-size: 0.875rem;
@@ -220,11 +220,20 @@ export const Secondary = styled.button`
   cursor: pointer;
   transition: all 0.2s;
 
-  &:hover {
-    background: var(--primary-teal);
-    color: var(--white);
+  &:hover:not(:disabled) {
+    background: var(--gray-100);
+    border-color: var(--gray-400);
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
+  }
+
+  &:disabled {
+    background: var(--gray-100);
+    color: var(--gray-400);
+    border-color: var(--gray-200);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
 `;
 
@@ -232,7 +241,7 @@ export const PreviewButton = styled.button`
   background: var(--white);
   color: var(--primary-teal);
   border: 2px solid var(--primary-teal);
-  padding: 0.625rem 1.25rem;
+  padding: 0.75rem 1.5rem;
   border-radius: var(--radius-lg);
   font-size: 0.875rem;
   font-weight: 600;
@@ -241,12 +250,22 @@ export const PreviewButton = styled.button`
   align-items: center;
   gap: 0.5rem;
   transition: all 0.2s;
+  box-shadow: var(--shadow-sm);
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--primary-teal);
     color: var(--white);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+
+  &:disabled {
+    background: var(--gray-100);
+    color: var(--gray-400);
+    border-color: var(--gray-300);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
 
   svg {
@@ -804,7 +823,7 @@ export const TypeBadge = styled.span`
   letter-spacing: 0.5px;
   
   background: ${props => {
-    switch(props.type) {
+    switch (props.type) {
       case 'Buy': return '#dcfce7';
       case 'Sell': return '#fee2e2';
       case 'Trade': return '#dbeafe';
@@ -813,7 +832,7 @@ export const TypeBadge = styled.span`
     }
   }};
   color: ${props => {
-    switch(props.type) {
+    switch (props.type) {
       case 'Buy': return '#166534';
       case 'Sell': return '#dc2626';
       case 'Trade': return '#1d4ed8';

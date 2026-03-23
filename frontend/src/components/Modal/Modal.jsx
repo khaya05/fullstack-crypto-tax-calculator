@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { FaCalculator, FaEye, FaUpload, FaPaste, FaLink, FaTimes } from "react-icons/fa";
 import { 
   Modal, Backdrop, Content, Header, Close, Body, Footer, 
-  Secondary, Primary, Tabs, Tab 
+  Secondary, Primary, Tabs, Tab, PreviewButton
 } from "../ImportModal.styles";
 import { InfoBox, ErrorBox } from "../MessageBoxes/MessageBoxes";
 import FileUploadTab from "../FileUploadTab/FileUploadTab";
@@ -36,11 +36,11 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -52,6 +52,44 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
       document.body.style.overflow = "auto";
     };
   }, [isOpen]);
+
+  // Close modal and reset all state
+  const handleClose = () => {
+    // Reset all state
+    setActiveTab(TABS.FILE);
+    setFiles([]);
+    setPastedData("");
+    setWalletAddresses([]);
+    setSelectedBlockchain(null);
+    setWalletInput("");
+    setWalletName("Main");
+    setPreviewData([]);
+    setValidationErrors([]);
+    setShowPreview(false);
+    setIsProcessing(false);
+    
+    // Close modal
+    onClose();
+  };
+
+  // Cancel current tab's data without closing modal
+  const handleCancel = () => {
+    if (activeTab === TABS.FILE) {
+      setFiles([]);
+    } else if (activeTab === TABS.PASTE) {
+      setPastedData("");
+    } else if (activeTab === TABS.WALLET) {
+      setWalletAddresses([]);
+      setSelectedBlockchain(null);
+      setWalletInput("");
+      setWalletName("Main");
+    }
+    
+    // Clear preview and errors
+    setShowPreview(false);
+    setPreviewData([]);
+    setValidationErrors([]);
+  };
 
   // Process file data
   const processFileData = async (file) => {
@@ -83,7 +121,12 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
         return;
       }
     } else if (activeTab === TABS.PASTE && pastedData.trim()) {
-      data = parseCSVData(pastedData);
+      try {
+        data = parseCSVData(pastedData);
+      } catch (error) {
+        setValidationErrors(['Failed to parse data: ' + error.message]);
+        return;
+      }
     } else if (activeTab === TABS.WALLET && walletAddresses.length > 0) {
       data = await fetchBlockchainData();
     }
@@ -181,7 +224,6 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
       });
       
       // Ensure calculations array matches originalTransactions array
-      // Create a map by transaction index for quick lookup
       const calculationsMap = {};
       fifoResults.transactionCalculations.forEach(calc => {
         calculationsMap[calc.transactionIndex] = {
@@ -193,7 +235,6 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
         };
       });
       
-      // Create calculations array in the same order as originalTransactions
       const calculationsArray = allData.map((_, index) => calculationsMap[index] || {
         capitalGain: 0,
         proceeds: 0,
@@ -237,7 +278,7 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
         console.error('onDataProcessed callback is not defined!');
       }
       
-      onClose();
+      handleClose();
       
     } catch (error) {
       console.error('Processing error:', error);
@@ -249,19 +290,19 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
 
   if (!isOpen) return null;
 
-  const canProcess = (files.length > 0 || pastedData.trim().length > 0 || walletAddresses.length > 0) 
-                    && validationErrors.length === 0;
+  const hasData = (files.length > 0 || pastedData.trim().length > 0 || walletAddresses.length > 0);
+  const canProcess = hasData && validationErrors.length === 0;
 
   return (
     <Modal>
-      <Backdrop onClick={onClose} />
+      <Backdrop onClick={handleClose} />
       <Content onClick={(e) => e.stopPropagation()}>
         <Header>
           <div>
             <h2>Import Your Crypto Transaction Data</h2>
             <p>SARS-compliant FIFO calculation for South African tax returns</p>
           </div>
-          <Close onClick={onClose}>
+          <Close onClick={handleClose}>
             <FaTimes />
           </Close>
         </Header>
@@ -338,15 +379,17 @@ export default function ImportModal({ isOpen, onClose, onDataProcessed }) {
         </Body>
 
         <Footer>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {(files.length > 0 || pastedData.trim().length > 0 || walletAddresses.length > 0) && (
-              <button onClick={generatePreview}>
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            {hasData && (
+              <PreviewButton onClick={generatePreview} disabled={isProcessing}>
                 <FaEye /> Preview Data
-              </button>
+              </PreviewButton>
             )}
           </div>
           <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <Secondary onClick={onClose}>Cancel</Secondary>
+            <Secondary onClick={handleCancel} disabled={!hasData || isProcessing}>
+              Clear Data
+            </Secondary>
             <Primary 
               disabled={!canProcess || isProcessing} 
               onClick={handleProcessAndCalculate}
