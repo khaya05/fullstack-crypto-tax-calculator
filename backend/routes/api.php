@@ -6,7 +6,31 @@ use App\Services\FIFOCalculatorService;
 use App\Services\PdfReportService;
 use App\Services\TaxCalculatorService;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\WalletController;
+use App\Http\Controllers\WalletTransactionController;
+use App\Http\Controllers\TaxReportController;
+use App\Http\Controllers\TaxController;
 use Illuminate\Http\Request;
+
+
+Route::apiResource('transactions', TransactionController::class);
+
+Route::post('/transactions/upload', [TransactionUploadController::class, 'upload']);
+// Route::post('/transactions', [TransactionUploadController::class, 'transactions']);
+
+
+Route::apiResource('wallets', WalletController::class);
+Route::get('wallets/{wallet}/transactions', [WalletTransactionController::class, 'index']);
+
+Route::post('tax/calculate', [TaxController::class, 'calculate']);
+Route::post('tax/export-pdf', [TaxController::class, 'exportPdf']);
+Route::post('tax/preview', [TaxController::class, 'preview']);
+
+// Tax report routes
+Route::prefix('tax')->group(function () {
+    Route::get('/wallet/{wallet}/{year?}', [TaxReportController::class, 'calculateWalletTax']);
+    Route::get('/wallet/{wallet}/pdf/{year?}', [TaxReportController::class, 'generateWalletPdf']);
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -59,7 +83,7 @@ Route::post('/calculate', function (
 });
 
 /**
- * Simple calculation endpoint 
+ * Simple calculation endpoint
  */
 Route::post('/calculate/simple', function (
   Request $request,
